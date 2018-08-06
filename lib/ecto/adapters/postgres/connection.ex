@@ -67,44 +67,69 @@ if Code.ensure_loaded?(Postgrex) do
 
     ## Query
 
+    defp start_span(tracer, name, context, opts \\ [])
+      when not is_nil(tracer) and is_atom(tracer), do: tracer.start_trace(name, context, [service: :postgresql, type: :db] ++ opts)
+    defp start_span(_tracer, _name, _context, _opts), do: nil
+
+    defp finish_span(tracer, context, opts \\ [])
+      when not is_nil(tracer) and is_atom(tracer), do: tracer.finish_trace(context, opts)
+    defp finish_span(_tracer, _context, _opts), do: nil
+
     def prepare_execute(conn, name, sql, params, opts) do
+      tracer = Keyword.get(opts, :tracer)
+      span_context = start_span(tracer, "prepare_execute", Keyword.get(opts, :span_context), sql_query: [query: sql])
       query = %Postgrex.Query{name: name, statement: sql}
-      opts  = [function: :prepare_execute] ++ opts
+      opts  = [function: :prepare_execute, span_context: span_context] ++ opts
       case DBConnection.prepare_execute(conn, query, params, opts) do
         {:ok, _, _} = ok ->
+          finish_span(tracer, span_context)
           ok
         {:error, %Postgrex.Error{}} = error ->
+          finish_span(tracer, span_context, error: true)
           error
         {:error, err} ->
+          finish_span(tracer, span_context, error: true)
           raise err
       end
     end
 
     def execute(conn, sql, params, opts) when is_binary(sql) or is_list(sql) do
+      tracer = Keyword.get(opts, :tracer)
+      span_context = start_span(tracer, "execute", Keyword.get(opts, :span_context), sql_query: [query: sql])
       query = %Postgrex.Query{name: "", statement: sql}
-      opts  = [function: :prepare_execute] ++ opts
+      opts  = [function: :prepare_execute, span_context: span_context] ++ opts
       case DBConnection.prepare_execute(conn, query, params, opts) do
         {:ok, _, result}  ->
+          finish_span(tracer, span_context)
           {:ok, result}
         {:error, %Postgrex.Error{}} = error ->
+          finish_span(tracer, span_context, error: true)
           error
         {:error, err} ->
+          finish_span(tracer, span_context, error: true)
           raise err
       end
     end
 
     def execute(conn, %{} = query, params, opts) do
-      opts = [function: :execute] ++ opts
+      tracer = Keyword.get(opts, :tracer)
+      span_context = start_span(tracer, "execute", Keyword.get(opts, :span_context), sql_query: [query: to_string(query)])
+      opts = [function: :execute, span_context: span_context] ++ opts
       case DBConnection.execute(conn, query, params, opts) do
         {:ok, _} = ok ->
+          finish_span(tracer, span_context)
           ok
         {:error, %ArgumentError{} = err} ->
+          finish_span(tracer, span_context, error: true)
           {:reset, err}
         {:error, %Postgrex.Error{postgres: %{code: :feature_not_supported}} = err} ->
+          finish_span(tracer, span_context, error: true)
           {:reset, err}
         {:error, %Postgrex.Error{}} = error ->
+          finish_span(tracer, span_context, error: true)
           error
         {:error, err} ->
+          finish_span(tracer, span_context, error: true)
           raise err
       end
     end

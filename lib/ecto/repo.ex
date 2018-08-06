@@ -104,6 +104,7 @@ defmodule Ecto.Repo do
       @adapter adapter
       @config  config
       @before_compile adapter
+      @tracer Keyword.get(opts, :tracer)
 
       loggers =
         Enum.reduce(opts[:loggers] || config[:loggers] || [Ecto.LogEntry], quote(do: entry), fn
@@ -160,6 +161,7 @@ defmodule Ecto.Repo do
       end
 
       def all(queryable, opts \\ []) do
+        opts = Keyword.put(opts, :tracer, @tracer)
         Ecto.Repo.Queryable.all(__MODULE__, @adapter, queryable, opts)
       end
 

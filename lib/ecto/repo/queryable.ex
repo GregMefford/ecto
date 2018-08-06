@@ -12,6 +12,14 @@ defmodule Ecto.Repo.Queryable do
 
   require Ecto.Query
 
+  defp start_span(tracer, name, context)
+    when not is_nil(tracer) and is_atom(tracer), do: tracer.start_trace(name, context)
+  defp start_span(_tracer, _name, _context), do: nil
+
+  defp finish_span(tracer, context)
+    when not is_nil(tracer) and is_atom(tracer), do: tracer.finish_trace(context)
+  defp finish_span(_tracer, _context), do: nil
+
   def transaction(adapter, repo, fun, opts) when is_function(fun, 0) do
     adapter.transaction(repo, opts, fun)
   end
@@ -29,12 +37,20 @@ defmodule Ecto.Repo.Queryable do
   end
 
   def all(repo, adapter, queryable, opts) when is_list(opts) do
+    tracer = Keyword.get(opts, :tracer)
+    trace_context = start_span(tracer, "ecto.all", Keyword.get(opts, :trace_context))
+    opts = Keyword.put(opts, :trace_context, trace_context)
+
     query =
       queryable
       |> Ecto.Queryable.to_query
       |> Ecto.Query.Planner.returning(true)
       |> attach_prefix(opts)
-    execute(:all, repo, adapter, query, opts) |> elem(1)
+
+    result = execute(:all, repo, adapter, query, opts) |> elem(1)
+
+    finish_span(tracer, trace_context)
+    result
   end
 
   def stream(repo, adapter, queryable, opts) when is_list(opts) do
